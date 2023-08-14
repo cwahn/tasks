@@ -3,18 +3,24 @@ use std::{
     ops::{Range, RangeFrom, RangeFull, RangeTo},
 };
 
-use nom::bytes::complete::take;
-use nom::combinator::verify;
+use nom::{
+    branch::alt,
+    bytes::complete::take,
+    combinator::{map, value},
+    multi::many0,
+    sequence::delimited,
+};
+use nom::{combinator::verify, sequence::preceded};
 use nom::{AsBytes, IResult, InputIter, InputLength, InputTake, Slice};
 
-use crate::lexer::Token;
+use crate::lexer::{self, lex, Token};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Expr {
     Nil,
-    Bool(bool),
+    // Bool(bool),
     Integer(i64),
-    Float(f64),
+    // Float(f64),
     String(String),
     Symbol(String),
     Lambda(Vec<String>, Vec<Expr>),
@@ -140,14 +146,6 @@ impl<'a> InputIter for Tokens<'a> {
 #[derive(Debug)]
 pub struct CustomParserError(String);
 
-// macro_rules! tag_token (
-//     ($func_name:ident, $tag: expr) => (
-//         fn $func_name(tokens: Tokens) -> IResult<Tokens, Tokens> {
-//             verify(take(1usize), |x: &Tokens| x.tokens[0] == $tag)(tokens)
-//         }
-//     )
-//   );
-
 macro_rules! tag_token (
     ($func_name:ident, $tag: pat) => (
         fn $func_name(tokens: Tokens) -> IResult<Tokens, Tokens> {
@@ -164,23 +162,38 @@ tag_token!(tag_rparan, Token::RParan);
 tag_token!(tag_integer, Token::Integer(_));
 tag_token!(tag_symbol, Token::Symbol(_));
 
-// fn tag_lparan(tokens: Tokens) -> IResult<Tokens, Tokens> {
-//     verify(take(1usize), |x: &Tokens| match x.tokens[0] {
-//         Token::LParan => true,
-//         _ => false,
-//     })(tokens)
-// }
+pub fn parse_integer(input: Tokens) -> IResult<Tokens, Expr> {
+    map(tag_integer, |x| match &x.tokens[0] {
+        Token::Integer(i) => Expr::Integer(i.clone()),
+        _ => unreachable!(),
+    })(input)
+}
 
-// fn parse_open_paran(tokens: &Vec<Token>) -> IResult<&Vec<Token>, Expr> {
-//     if let Some(fisrt) = tokens.first() {
-//         match first {
-//             Token::LParan => {}
-//             _ => Err,
-//         }
-//     }
-// }
+pub fn parse_symbol(input: Tokens) -> IResult<Tokens, Expr> {
+    map(tag_symbol, |x| match &x.tokens[0] {
+        Token::Symbol(s) => Expr::Symbol(s.clone()),
+        _ => unreachable!(),
+    })(input)
+}
 
-// pub fn parse_list(tokens: &Vec<Token>) -> IResult<&Vec<Token>, Expr> {}
+pub fn parse_list(input: Tokens) -> IResult<Tokens, Expr> {
+    map(
+        delimited(
+            tag_lparan,
+            many0(alt((parse_integer, parse_symbol, parse_list))),
+            tag_rparan,
+        ),
+        |x| Expr::List(x),
+    )(input)
+}
+
+pub fn read(input: &str) -> Option<Expr> {
+    let (_, token_vec) = lex(input).unwrap();
+    let (_, expr) = parse_list(Tokens::new(&token_vec)).unwrap();
+    Some(expr)
+}
+
+// pub fn parse_list(tokens: Tokens) -> IResult<Tokens, Expr> {}
 
 #[cfg(test)]
 mod test {
@@ -229,13 +242,42 @@ mod test {
     }
 
     #[test]
-    fn tagsymbolr_test() {
+    fn tag_symbol_test() {
         assert_eq!(
-            tag_symbol(Tokens::new(&vec![Token::Symbol("()".to_owned()), Token::RParan])).unwrap(),
+            tag_symbol(Tokens::new(&vec![
+                Token::Symbol("()".to_owned()),
+                Token::RParan
+            ]))
+            .unwrap(),
             (
                 Tokens::new(&vec![Token::RParan]),
                 Tokens::new(&vec![Token::Symbol("()".to_owned())]),
             )
+        );
+    }
+
+    #[test]
+    fn read_test() {
+        assert_eq!(read("()").unwrap(), Expr::List(vec![]));
+        assert_eq!(read("(42)").unwrap(), Expr::List(vec![Expr::Integer(42)]));
+        assert_eq!(
+            read("(the_number 42)").unwrap(),
+            Expr::List(vec![
+                Expr::Symbol("the_number".to_owned()),
+                Expr::Integer(42),
+            ])
+        );
+        assert_eq!(
+            read("(plus 40 2)").unwrap(),
+            Expr::List(vec![
+                Expr::Symbol("plus".to_owned()),
+                Expr::Integer(40),
+                Expr::Integer(2),
+            ])
+        );
+        assert_eq!(
+            read("(( 42) )").unwrap(),
+            Expr::List(vec![Expr::List(vec![Expr::Integer(42)])])
         );
     }
 }

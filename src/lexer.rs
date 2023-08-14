@@ -52,7 +52,7 @@ fn lex_symbol(input: &str) -> IResult<&str, Token> {
     Ok((input, Token::Symbol(matched.to_owned())))
 }
 
-pub fn lexer(input: &str) -> IResult<&str, Vec<Token>> {
+pub fn lex(input: &str) -> IResult<&str, Vec<Token>> {
     all_consuming(many0(alt((
         lex_lparan,
         lex_rparan,
@@ -104,9 +104,9 @@ mod test {
     }
 
     #[test]
-    fn lexer_test() {
+    fn lex_test() {
         assert_eq!(
-            lexer("(some_name 42)").unwrap().1,
+            lex("(some_name 42)").unwrap().1,
             vec![
                 Token::LParan,
                 Token::Symbol("some_name".to_owned()),
